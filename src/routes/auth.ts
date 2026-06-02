@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-
+import { env } from "../config/env.js";
 import { isAdminLoginConfigured } from "../config/env.js";
 import { adminAuth } from "../middleware/adminAuth.js";
 import { createAdminSession } from "../services/adminSession.js";
@@ -14,6 +14,15 @@ import {
 import { fail, ok } from "../utils/http.js";
 
 export const authRouter = Router();
+
+function isMissingAdminTableError(err: unknown): boolean {
+  return Boolean(
+    err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "ER_NO_SUCH_TABLE",
+  );
+}
 
 const loginSchema = z
   .object({
@@ -49,8 +58,34 @@ authRouter.post("/login", async (req, res, next) => {
     const loginId = (body.email ?? body.username ?? "").trim();
     const { password } = body;
 
-    const user = await findAdminByLogin(loginId);
+    let user = null;
+    try {
+      user = await findAdminByLogin(loginId);
+    } catch (err) {
+      if (!isMissingAdminTableError(err)) throw err;
+      user = null;
+    }
     if (!user) {
+      // Fallback path when admin_users table isn't available in target DB.
+      const envUser = env.adminUsername?.trim();
+      const envPass = env.adminPassword ?? "";
+      const asEmail = envUser?.includes("@") ? envUser : envUser ? `${envUser}@admin.local` : "";
+      const loginMatched = Boolean(
+        envUser &&
+          (loginId.toLowerCase() === envUser.toLowerCase() || loginId.toLowerCase() === asEmail.toLowerCase()),
+      );
+      const passMatched = loginMatched && envPass ? password === envPass : false;
+      if (loginMatched && passMatched) {
+        const token = createAdminSession({ id: "env-admin", email: asEmail || "admin@local" });
+        ok(res, {
+          token,
+          username: asEmail || envUser,
+          email: asEmail || envUser,
+          fullName: env.adminDisplayName || "Site Administrator",
+          role: "admin",
+        });
+        return;
+      }
       fail(res, "Invalid email or password", 401);
       return;
     }
