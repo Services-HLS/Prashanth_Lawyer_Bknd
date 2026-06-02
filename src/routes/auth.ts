@@ -24,6 +24,32 @@ function isMissingAdminTableError(err: unknown): boolean {
   );
 }
 
+function tryEnvAdminLogin(loginId: string, password: string):
+  | {
+      id: string;
+      email: string;
+      fullName: string;
+      role: "admin";
+    }
+  | null {
+  const envUser = env.adminUsername?.trim();
+  const envPass = env.adminPassword ?? "";
+  if (!envUser || !envPass) return null;
+
+  const asEmail = envUser.includes("@") ? envUser : `${envUser}@admin.local`;
+  const login = loginId.trim().toLowerCase();
+  const matchedLogin = login === envUser.toLowerCase() || login === asEmail.toLowerCase();
+  const matchedPass = password === envPass;
+  if (!matchedLogin || !matchedPass) return null;
+
+  return {
+    id: "env-admin",
+    email: asEmail,
+    fullName: env.adminDisplayName || "Site Administrator",
+    role: "admin",
+  };
+}
+
 const loginSchema = z
   .object({
     username: z.string().optional(),
@@ -58,6 +84,20 @@ authRouter.post("/login", async (req, res, next) => {
     const loginId = (body.email ?? body.username ?? "").trim();
     const { password } = body;
 
+    // Always allow env-admin fallback first (useful when DB auth tables are missing/misaligned).
+    const envAdmin = tryEnvAdminLogin(loginId, password);
+    if (envAdmin) {
+      const token = createAdminSession({ id: envAdmin.id, email: envAdmin.email });
+      ok(res, {
+        token,
+        username: envAdmin.email,
+        email: envAdmin.email,
+        fullName: envAdmin.fullName,
+        role: envAdmin.role,
+      });
+      return;
+    }
+
     let user = null;
     try {
       user = await findAdminByLogin(loginId);
@@ -66,26 +106,6 @@ authRouter.post("/login", async (req, res, next) => {
       user = null;
     }
     if (!user) {
-      // Fallback path when admin_users table isn't available in target DB.
-      const envUser = env.adminUsername?.trim();
-      const envPass = env.adminPassword ?? "";
-      const asEmail = envUser?.includes("@") ? envUser : envUser ? `${envUser}@admin.local` : "";
-      const loginMatched = Boolean(
-        envUser &&
-          (loginId.toLowerCase() === envUser.toLowerCase() || loginId.toLowerCase() === asEmail.toLowerCase()),
-      );
-      const passMatched = loginMatched && envPass ? password === envPass : false;
-      if (loginMatched && passMatched) {
-        const token = createAdminSession({ id: "env-admin", email: asEmail || "admin@local" });
-        ok(res, {
-          token,
-          username: asEmail || envUser,
-          email: asEmail || envUser,
-          fullName: env.adminDisplayName || "Site Administrator",
-          role: "admin",
-        });
-        return;
-      }
       fail(res, "Invalid email or password", 401);
       return;
     }
