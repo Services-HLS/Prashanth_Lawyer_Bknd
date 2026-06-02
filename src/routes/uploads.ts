@@ -1,7 +1,3 @@
-import { randomBytes } from "crypto";
-import { mkdirSync } from "fs";
-import path from "path";
-
 import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
@@ -9,25 +5,8 @@ import multer from "multer";
 import { adminAuth } from "../middleware/adminAuth.js";
 import { fail, ok } from "../utils/http.js";
 
-const uploadsDir = path.join(process.cwd(), "uploads");
-mkdirSync(uploadsDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-    const safeExt = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"].includes(ext)
-      ? ext
-      : ".jpg";
-    const name = `${Date.now()}-${randomBytes(6).toString("hex")}${safeExt}`;
-    cb(null, name);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024, files: 12 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
@@ -42,7 +21,7 @@ export const uploadsRouter = Router();
 
 uploadsRouter.use(adminAuth);
 
-/** POST multipart field `images` (multiple) — saves to disk, returns public URLs */
+/** POST multipart field `images` (multiple) — returns data:image/*;base64 URLs for DB storage */
 uploadsRouter.post("/", upload.array("images", 12), (req, res) => {
   const files = req.files as Express.Multer.File[] | undefined;
   if (!files?.length) {
@@ -50,7 +29,11 @@ uploadsRouter.post("/", upload.array("images", 12), (req, res) => {
     return;
   }
 
-  const urls = files.map((f) => `/uploads/${f.filename}`);
+  const urls = files.map((f) => {
+    const mime = f.mimetype || "image/jpeg";
+    const b64 = f.buffer.toString("base64");
+    return `data:${mime};base64,${b64}`;
+  });
   ok(res, { urls });
 });
 
