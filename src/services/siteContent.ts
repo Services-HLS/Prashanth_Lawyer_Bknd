@@ -46,38 +46,59 @@ async function loadSiteSettings(): Promise<Record<string, unknown>> {
 }
 
 export async function loadSitePayload(): Promise<SitePayload> {
-  const settings = await loadSiteSettings();
+  const [settings, aboutRows, articles, timelineAll, books, podcasts] = await Promise.all([
+    loadSiteSettings(),
+    listRows(tableConfigs.about, { publishedOnly: true }),
+    listRows(tableConfigs.articles, { publishedOnly: true }),
+    safeListRows(tableConfigs.timelineEntries, { publishedOnly: true }),
+    listRows(tableConfigs.books, { publishedOnly: true }),
+    listRows(tableConfigs.podcasts, { publishedOnly: true }),
+  ]);
 
-  const aboutRows = await listRows(tableConfigs.about, { publishedOnly: true });
-  const articles = await listRows(tableConfigs.articles, { publishedOnly: true });
-  const opinions = await listRows(tableConfigs.articles, {
-    publishedOnly: true,
-    extraWhere: "type = :type",
-    params: { type: "legal_opinion" },
-  });
+  const opinions = articles.filter((a) => (a.type as string) === "legal_opinion");
 
-  const timelineAll = await safeListRows(tableConfigs.timelineEntries, { publishedOnly: true });
+  const [
+    practiceAreas,
+    memberships,
+    speakingEvents,
+    collaborationServices,
+    resources,
+    testimonials,
+    ticker,
+    publications,
+    contactDetails,
+    socialLinks,
+  ] = await Promise.all([
+    safeListRows(tableConfigs.practiceAreas, { publishedOnly: true }),
+    safeListRows(tableConfigs.memberships, { publishedOnly: true }),
+    safeListRows(tableConfigs.speakingEvents, { publishedOnly: true }),
+    safeListRows(tableConfigs.collaborationServices, { publishedOnly: true }),
+    safeListRows(tableConfigs.resources, { publishedOnly: true }),
+    safeListRows(tableConfigs.testimonials, { publishedOnly: true }),
+    safeListRows(tableConfigs.tickerItems, { publishedOnly: true }),
+    safeListRows(tableConfigs.publicationLogos, { publishedOnly: true }),
+    safeListRows(tableConfigs.contactDetails, { publishedOnly: true }),
+    safeListRows(tableConfigs.socialLinks, { publishedOnly: true }),
+  ]);
 
   return {
     about: aboutRows[0] ?? null,
     articles: articles.filter((a) => (a.type as string) !== "legal_opinion"),
     opinions,
-    practiceAreas: await safeListRows(tableConfigs.practiceAreas, { publishedOnly: true }),
+    practiceAreas,
     timelineAbout: timelineAll.filter((t) => t.section === "about"),
     timelineCredentials: timelineAll.filter((t) => t.section === "credentials"),
-    memberships: await safeListRows(tableConfigs.memberships, { publishedOnly: true }),
-    speakingEvents: await safeListRows(tableConfigs.speakingEvents, { publishedOnly: true }),
-    collaborationServices: await safeListRows(tableConfigs.collaborationServices, {
-      publishedOnly: true,
-    }),
-    resources: await safeListRows(tableConfigs.resources, { publishedOnly: true }),
-    testimonials: await safeListRows(tableConfigs.testimonials, { publishedOnly: true }),
-    ticker: await safeListRows(tableConfigs.tickerItems, { publishedOnly: true }),
-    publications: await safeListRows(tableConfigs.publicationLogos, { publishedOnly: true }),
-    contactDetails: await safeListRows(tableConfigs.contactDetails, { publishedOnly: true }),
-    socialLinks: await safeListRows(tableConfigs.socialLinks, { publishedOnly: true }),
-    books: await listRows(tableConfigs.books, { publishedOnly: true }),
-    podcasts: await listRows(tableConfigs.podcasts, { publishedOnly: true }),
+    memberships,
+    speakingEvents,
+    collaborationServices,
+    resources,
+    testimonials,
+    ticker,
+    publications,
+    contactDetails,
+    socialLinks,
+    books,
+    podcasts,
     settings,
   };
 }

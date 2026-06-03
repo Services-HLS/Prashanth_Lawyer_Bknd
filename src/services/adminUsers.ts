@@ -7,7 +7,8 @@ import { env } from "../config/env.js";
 import { newId } from "../utils/id.js";
 import { queryWithRetry } from "../utils/dbRetry.js";
 
-const BCRYPT_ROUNDS = 12;
+/** 10 rounds — faster login on small Render instances; still secure for admin accounts */
+const BCRYPT_ROUNDS = 10;
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export type AdminUserRow = {

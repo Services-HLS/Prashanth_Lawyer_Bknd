@@ -12,6 +12,7 @@ import {
   updateRow,
 } from "../services/tableCrud.js";
 import { apiToRow, contentTypeToConfigKey, rowToApi } from "../utils/caseTransform.js";
+import { invalidatePublicContentCaches } from "../utils/responseCache.js";
 import { fail, ok } from "../utils/http.js";
 import { newId } from "../utils/id.js";
 
@@ -121,6 +122,7 @@ contentRouter.post("/", async (req, res, next) => {
       fail(res, "Create failed", 500);
       return;
     }
+    invalidatePublicContentCaches();
     res.status(201).json({ success: true, data: rowToApi(row as Record<string, unknown>) });
   } catch (e) {
     next(e);
@@ -154,6 +156,7 @@ contentRouter.put("/:type/:id", async (req, res, next) => {
       fail(res, "Update failed", 500);
       return;
     }
+    invalidatePublicContentCaches();
     ok(res, rowToApi(row as Record<string, unknown>));
   } catch (e) {
     next(e);
@@ -180,6 +183,7 @@ contentRouter.delete("/:type/:id", async (req, res, next) => {
       fail(res, "Content not found", 404);
       return;
     }
+    invalidatePublicContentCaches();
     ok(res, { success: true });
   } catch (e) {
     next(e);
@@ -212,6 +216,7 @@ contentRouter.patch("/:type/:id/status", async (req, res, next) => {
       fail(res, "Content not found", 404);
       return;
     }
+    invalidatePublicContentCaches();
     ok(res, { success: true, data: rowToApi(row as Record<string, unknown>) });
   } catch (e) {
     next(e);

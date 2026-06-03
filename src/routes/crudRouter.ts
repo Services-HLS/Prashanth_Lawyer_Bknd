@@ -11,7 +11,9 @@ import {
 } from "../services/tableCrud.js";
 import { adminAuth } from "../middleware/adminAuth.js";
 import { sanitizeArticleRow, sanitizeBookRow } from "../utils/articleContent.js";
+import { invalidatePublicContentCaches } from "../utils/responseCache.js";
 import { fail, ok } from "../utils/http.js";
+import { listRowsAdminSummary } from "../services/tableCrud.js";
 
 type CrudRouterOptions = {
   config: TableConfig;
@@ -31,7 +33,7 @@ export function createCrudRouter({
 
   admin.get("/", async (_req, res, next) => {
     try {
-      const rows = await listRows(config, { publishedOnly: false });
+      const rows = await listRowsAdminSummary(config);
       ok(res, rows);
     } catch (e) {
       next(e);
@@ -54,6 +56,7 @@ export function createCrudRouter({
   admin.post("/", async (req, res, next) => {
     try {
       const row = await insertRow(config, req.body);
+      invalidatePublicContentCaches();
       ok(res, row, 201);
     } catch (e) {
       next(e);
@@ -68,6 +71,7 @@ export function createCrudRouter({
         return;
       }
       const row = await updateRow(config, req.params.id, req.body);
+      invalidatePublicContentCaches();
       ok(res, row);
     } catch (e) {
       next(e);
@@ -81,6 +85,7 @@ export function createCrudRouter({
         fail(res, "Not found", 404);
         return;
       }
+      invalidatePublicContentCaches();
       ok(res, { id: req.params.id });
     } catch (e) {
       next(e);
@@ -122,7 +127,7 @@ export function createCrudRouter({
         return;
       }
       let payload: Record<string, unknown> = row as Record<string, unknown>;
-      if (config.table === "articles") payload = sanitizeArticleRow(payload);
+      if (config.table === "articles") payload = sanitizeArticleRow(payload, "detail");
       if (config.table === "books") payload = sanitizeBookRow(payload, "detail");
       ok(res, payload);
     } catch (e) {

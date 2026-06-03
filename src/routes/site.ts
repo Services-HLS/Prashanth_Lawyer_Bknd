@@ -6,50 +6,59 @@ import { getPool } from "../db/pool.js";
 import { adminAuth } from "../middleware/adminAuth.js";
 import { queryWithRetry } from "../utils/dbRetry.js";
 import { sanitizeArticleRow, sanitizeBookRow } from "../utils/articleContent.js";
+import { stripHeavyImageFields } from "../utils/mediaFields.js";
+import { cacheGet, cacheSet } from "../utils/responseCache.js";
 import { fail, ok, parseJsonColumn } from "../utils/http.js";
 
+const WRITING_CACHE_MS = 45_000;
+const SITE_CACHE_MS = 60_000;
+
 export const siteRouter = Router();
+
+function setPublicCacheHeaders(res: import("express").Response, maxAgeSec = 30): void {
+  res.setHeader("Cache-Control", `public, max-age=${maxAgeSec}, stale-while-revalidate=120`);
+}
 
 /** Published Work & Analysis section — articles + books from MySQL */
 siteRouter.get("/writing", async (_req, res, next) => {
   try {
-    const articles = await queryWithRetry(async (pool) => {
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, type, title, slug, description, category, tags,
-                featured_image, gallery_images, pdf_url, author, publish_date, status,
-                SUBSTRING(content, 1, 4000) AS content
-         FROM articles WHERE status = 'published'
-         ORDER BY publish_date DESC, created_at DESC`,
-      );
-      return rows.map((row) => {
-        const img = row.featured_image as string | null | undefined;
-        let base: Record<string, unknown> = { ...row };
-        if (typeof img === "string" && img.length > 80_000) {
-          base = { ...base, featured_image: null, has_featured_image: 1 };
-        }
-        const sanitized = sanitizeArticleRow(base);
-        const { content: _content, ...publicRow } = sanitized;
-        return publicRow;
-      });
-    });
+    const cached = cacheGet<{ articles: RowDataPacket[]; books: RowDataPacket[] }>("site:writing");
+    if (cached) {
+      setPublicCacheHeaders(res);
+      ok(res, cached);
+      return;
+    }
 
-    const books = await queryWithRetry(async (pool) => {
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, type, title, slug, description, author, cover_image, buy_link, publication_date, publisher, isbn, status
-         FROM books WHERE status = 'published'
-         ORDER BY publication_date DESC, created_at DESC`,
-      );
-      return rows.map((row) => {
-        const cover = row.cover_image as string | null | undefined;
-        let base: Record<string, unknown> = { ...row };
-        if (typeof cover === "string" && cover.length > 80_000) {
-          base = { ...base, cover_image: null, has_cover_image: 1 };
-        }
-        return sanitizeBookRow(base);
-      });
-    });
+    const [articles, books] = await Promise.all([
+      queryWithRetry(async (pool) => {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT id, type, title, slug, description, category, tags,
+                  featured_image, gallery_images, pdf_url, author, publish_date, status
+           FROM articles WHERE status = 'published'
+           ORDER BY publish_date DESC, created_at DESC`,
+        );
+        return rows.map((row) => {
+          const base = stripHeavyImageFields(row as Record<string, unknown>);
+          return sanitizeArticleRow(base, "list");
+        });
+      }),
+      queryWithRetry(async (pool) => {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT id, type, title, slug, description, author, cover_image, buy_link, publication_date, publisher, isbn, status
+           FROM books WHERE status = 'published'
+           ORDER BY publication_date DESC, created_at DESC`,
+        );
+        return rows.map((row) => {
+          const base = stripHeavyImageFields(row as Record<string, unknown>);
+          return sanitizeBookRow(base, "list");
+        });
+      }),
+    ]);
 
-    ok(res, { articles, books });
+    const payload = { articles, books };
+    cacheSet("site:writing", payload, WRITING_CACHE_MS);
+    setPublicCacheHeaders(res);
+    ok(res, payload);
   } catch (e) {
     next(e);
   }
@@ -61,7 +70,16 @@ siteRouter.get("/writing", async (_req, res, next) => {
  */
 siteRouter.get("/", async (_req, res, next) => {
   try {
+    const cached = cacheGet<Awaited<ReturnType<typeof loadSitePayload>>>("site:payload");
+    if (cached) {
+      setPublicCacheHeaders(res, 60);
+      ok(res, cached);
+      return;
+    }
+
     const data = await loadSitePayload();
+    cacheSet("site:payload", data, SITE_CACHE_MS);
+    setPublicCacheHeaders(res, 60);
     ok(res, data);
   } catch (e) {
     next(e);

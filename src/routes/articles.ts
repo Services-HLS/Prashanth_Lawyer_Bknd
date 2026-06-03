@@ -5,7 +5,11 @@ import { tableConfigs } from "../config/tables.js";
 import { listRows } from "../services/tableCrud.js";
 import { queryWithRetry } from "../utils/dbRetry.js";
 import { sanitizeArticleRow } from "../utils/articleContent.js";
+import { stripHeavyImageFields } from "../utils/mediaFields.js";
+import { cacheGet, cacheSet } from "../utils/responseCache.js";
 import { fail, ok } from "../utils/http.js";
+
+const FEED_CACHE_MS = 45_000;
 
 const config = tableConfigs.articles;
 
@@ -46,20 +50,27 @@ articlesRouter.get("/:slug/hero", async (req, res, next) => {
  */
 articlesRouter.get("/feed", async (_req, res, next) => {
   try {
+    const cached = cacheGet<RowDataPacket[]>("articles:feed");
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+      ok(res, cached);
+      return;
+    }
+
     const rows = await queryWithRetry(async (pool) => {
       const [result] = await pool.query<RowDataPacket[]>(
-        `SELECT id, type, title, slug, description, category, tags, featured_image, gallery_images, pdf_url, author, publish_date, status, created_at, updated_at,
-                SUBSTRING(content, 1, 4000) AS content
+        `SELECT id, type, title, slug, description, category, tags, featured_image, gallery_images, pdf_url, author, publish_date, status, created_at, updated_at
          FROM articles
          WHERE status = 'published'
          ORDER BY publish_date DESC, created_at DESC`,
       );
       return result.map((row) => {
-        const sanitized = sanitizeArticleRow(row as Record<string, unknown>);
-        const { content: _content, ...publicRow } = sanitized;
-        return publicRow;
+        const base = stripHeavyImageFields(row as Record<string, unknown>);
+        return sanitizeArticleRow(base, "list");
       });
     });
+    cacheSet("articles:feed", rows, FEED_CACHE_MS);
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
     ok(res, rows);
   } catch (e) {
     next(e);

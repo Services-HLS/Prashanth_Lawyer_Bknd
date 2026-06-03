@@ -2,7 +2,12 @@ import type { RowDataPacket } from "mysql2/promise";
 import { Router } from "express";
 
 import { queryWithRetry } from "../utils/dbRetry.js";
+import { sanitizeBookRow } from "../utils/bookContent.js";
+import { stripHeavyImageFields } from "../utils/mediaFields.js";
+import { cacheGet, cacheSet } from "../utils/responseCache.js";
 import { fail, ok } from "../utils/http.js";
+
+const FEED_CACHE_MS = 45_000;
 
 export const booksRouter = Router();
 
@@ -37,6 +42,13 @@ booksRouter.get("/:slug/cover", async (req, res, next) => {
 /** Lightweight list for site.html Published Work section */
 booksRouter.get("/feed", async (_req, res, next) => {
   try {
+    const cached = cacheGet<RowDataPacket[]>("books:feed");
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+      ok(res, cached);
+      return;
+    }
+
     const rows = await queryWithRetry(async (pool) => {
       const [result] = await pool.query<RowDataPacket[]>(
         `SELECT id, type, title, slug, description, author, cover_image, buy_link, publication_date, publisher, isbn, status, created_at, updated_at
@@ -45,13 +57,12 @@ booksRouter.get("/feed", async (_req, res, next) => {
          ORDER BY publication_date DESC, created_at DESC`,
       );
       return result.map((row) => {
-        const cover = row.cover_image as string | null | undefined;
-        if (typeof cover === "string" && cover.length > 80_000) {
-          return { ...row, cover_image: null, has_cover_image: 1 };
-        }
-        return row;
+        const base = stripHeavyImageFields(row as Record<string, unknown>);
+        return sanitizeBookRow(base, "list");
       });
     });
+    cacheSet("books:feed", rows, FEED_CACHE_MS);
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
     ok(res, rows);
   } catch (e) {
     next(e);

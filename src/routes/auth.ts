@@ -116,7 +116,7 @@ authRouter.post("/login", async (req, res, next) => {
       return;
     }
 
-    await touchLastLogin(user.id);
+    void touchLastLogin(user.id).catch(() => undefined);
     const token = createAdminSession({ id: user.id, email: user.email });
     ok(res, {
       token,

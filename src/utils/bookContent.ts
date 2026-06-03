@@ -1,5 +1,11 @@
 /** Book publication formatting — TOC, sections, bullet points on detail; short excerpt on lists */
 
+const METADATA_RE = /<!--\s*METADATA_START[\s\S]*?-->\s*$/i;
+
+function stripMetadata(text: string): string {
+  return text.replace(METADATA_RE, "").trim();
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -185,7 +191,7 @@ function renderSection(block: Extract<BookBlock, { kind: "section" }>): string {
 }
 
 export function formatBookBodyHtml(description: string): string {
-  const raw = description.trim();
+  const raw = stripMetadata(description.trim());
   if (!raw) return "";
 
   if (raw.includes("<nav") && raw.includes("book-toc")) return raw;
@@ -208,7 +214,7 @@ export function formatBookBodyHtml(description: string): string {
 }
 
 export function formatBookCardSummary(description: string, maxLen = 160): string {
-  const blocks = parseBookBlocks(description);
+  const blocks = parseBookBlocks(stripMetadata(description));
   for (const b of blocks) {
     if (b.kind === "paragraph" && b.text.length >= 40) {
       let text = b.text.replace(/\s+/g, " ").trim();

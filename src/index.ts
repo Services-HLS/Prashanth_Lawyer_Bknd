@@ -1,3 +1,4 @@
+import compression from "compression";
 import express from "express";
 import path from "path";
 
@@ -28,9 +29,10 @@ void (async () => {
 
 const app = express();
 
+app.use(compression());
 app.use(corsHeadersMiddleware);
 app.use(corsMiddleware);
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 const uploadsDir = path.join(process.cwd(), "uploads");

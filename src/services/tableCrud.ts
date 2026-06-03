@@ -96,6 +96,45 @@ export async function listRows(
   }
 }
 
+/** Admin CMS list — skips huge content/images so publish screens load fast */
+export async function listRowsAdminSummary(config: TableConfig): Promise<RowDataPacket[]> {
+  const orderBy = config.orderBy ?? "created_at DESC";
+
+  if (config.table === "articles") {
+    return queryRows<RowDataPacket[]>(
+      `SELECT id, type, title, slug, status, category, tags, author, publish_date, created_at, updated_at,
+              pdf_url,
+              LEFT(description, 320) AS description,
+              CASE WHEN featured_image IS NOT NULL AND LENGTH(featured_image) > 0 THEN 1 ELSE 0 END AS has_featured_image,
+              CASE WHEN content IS NOT NULL AND LENGTH(content) > 0 THEN 1 ELSE 0 END AS has_content
+       FROM \`articles\`
+       ORDER BY ${orderBy}`,
+    );
+  }
+
+  if (config.table === "books") {
+    return queryRows<RowDataPacket[]>(
+      `SELECT id, type, title, slug, status, author, publisher, isbn, buy_link, publication_date, created_at, updated_at,
+              LEFT(description, 320) AS description,
+              CASE WHEN cover_image IS NOT NULL AND LENGTH(cover_image) > 0 THEN 1 ELSE 0 END AS has_cover_image
+       FROM \`books\`
+       ORDER BY ${orderBy}`,
+    );
+  }
+
+  if (config.table === "podcasts") {
+    return queryRows<RowDataPacket[]>(
+      `SELECT id, type, title, slug, status, summary, guest_name, duration, episode_number, audio_url, video_url, created_at, updated_at,
+              LEFT(description, 320) AS description,
+              CASE WHEN cover_image IS NOT NULL AND LENGTH(cover_image) > 0 THEN 1 ELSE 0 END AS has_cover_image
+       FROM \`podcasts\`
+       ORDER BY ${orderBy}`,
+    );
+  }
+
+  return listRows(config, { publishedOnly: false });
+}
+
 export async function getRowById(
   config: TableConfig,
   id: string,

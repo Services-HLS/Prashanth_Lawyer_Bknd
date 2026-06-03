@@ -206,7 +206,12 @@ export function parseArticleContentMetadata(html: string): ArticleContentMeta {
   };
 }
 
-export function sanitizeArticleRow<T extends Record<string, unknown>>(row: T): T {
+export type ArticleSanitizeMode = "list" | "detail";
+
+export function sanitizeArticleRow<T extends Record<string, unknown>>(
+  row: T,
+  mode: ArticleSanitizeMode = "list",
+): T {
   const content = row.content;
   const description = row.description;
   const next = { ...row } as T & {
@@ -216,7 +221,7 @@ export function sanitizeArticleRow<T extends Record<string, unknown>>(row: T): T
     pdf_url?: string;
   };
 
-  if (typeof content === "string") {
+  if (mode === "detail" && typeof content === "string") {
     if (content.includes("METADATA_START")) {
       const { cleanHtml, galleryImages, pdfUrl } = parseArticleContentMetadata(content);
       next.content = cleanHtml;
@@ -227,9 +232,11 @@ export function sanitizeArticleRow<T extends Record<string, unknown>>(row: T): T
     }
     const formatted = formatBodyHtml(String(next.content ?? content));
     if (formatted) next.content = formatted;
+  } else {
+    delete next.content;
   }
 
-  const summary = formatSummary(description, next.content ?? content);
+  const summary = formatSummary(description, mode === "detail" ? (next.content ?? content) : "");
   if (summary) next.description = summary;
   else if (typeof description === "string" && isOutlineOrToc(stripHtml(description))) {
     next.description = "";
